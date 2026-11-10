@@ -4,15 +4,15 @@ import android.app.*
 import android.content.*
 import android.content.pm.PackageManager
 import android.location.LocationManager
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.os.*
 import android.view.KeyEvent
 import java.text.SimpleDateFormat
 import java.util.*
 
 class DeliveryService : Service() {
- private var session: MediaSession? = null
+ private var session: MediaSessionCompat? = null
  private val clock = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
  override fun onBind(intent: Intent?) = null
  override fun onCreate() {
@@ -24,10 +24,12 @@ class DeliveryService : Service() {
    .setContentTitle("Leveransjakt – leveransläge").setContentText("Testar hörlurarnas nästa-låt-knapp")
    .setContentIntent(open).setOngoing(true).build()
   startForeground(101, notification)
-  val s = MediaSession(this, "LeveransjaktLeveranslage")
-  s.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS)
-  s.setCallback(object : MediaSession.Callback() {
+  val s = MediaSessionCompat(this, "LeveransjaktLeveranslage")
+  s.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS)
+  s.setCallback(object : MediaSessionCompat.Callback() {
    override fun onSkipToNext() { record("MEDIA_NEXT", "Hörlur/mediekommando"); gps() }
+   override fun onPlay() { record("MEDIA_PLAY", "Uppspelning") }
+   override fun onPause() { record("MEDIA_PAUSE", "Paus") }
    override fun onMediaButtonEvent(intent: Intent): Boolean {
     @Suppress("DEPRECATION")
     val event = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
@@ -38,8 +40,8 @@ class DeliveryService : Service() {
     return super.onMediaButtonEvent(intent)
    }
   })
-  s.setPlaybackState(PlaybackState.Builder().setActions(PlaybackState.ACTION_SKIP_TO_NEXT)
-    .setState(PlaybackState.STATE_PLAYING, 0, 1f).build())
+  s.setPlaybackState(PlaybackStateCompat.Builder().setActions(PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE)
+    .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1f).build())
   session = s
   s.isActive = true
   record("LEVERANSLAGE_START", "Mediesession aktiv")
