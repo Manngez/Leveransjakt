@@ -17,27 +17,20 @@ class MainActivity : Activity() {
  private lateinit var output: TextView
  private val events = mutableListOf<String>()
  private val clock = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
- private val receiver = object : BroadcastReceiver() {
-  override fun onReceive(context: Context?, intent: Intent?) {
-   val track = intent?.getStringExtra("track") ?: return
-   add("SPOTIFY_LÅTBYTE", track)
-  }
- }
  override fun onCreate(savedInstanceState: Bundle?) {
   super.onCreate(savedInstanceState)
   val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 30, 24, 20) }
   val heading = TextView(this).apply { text = "Leveransjakt"; textSize = 28f }
   root.addView(heading)
-  root.addView(TextView(this).apply { text = "Test av FEEL Buds Ultra och Spotify. Låtbyten bevisar inte hörlurstryck." })
+  root.addView(TextView(this).apply { text = "Säker testversion: registrera GPS-stopp manuellt. Automatisk Spotify- och hörlursavkänning är avstängd." })
   fun action(label: String, fn: () -> Unit) {
    root.addView(Button(this).apply { text = label; setOnClickListener { fn() } })
   }
-  action("Ge åtkomst till Spotify-aviseringar") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
   action("Tillåt GPS") {
    requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 1)
   }
   action("Registrera leveransstopp") { saveStop() }
-  action("Markera hörlurstryck manuellt") { add("TESTMARKERING", "Tryck på hörluren och jämför låtbyte") }
+  action("Markera hörlurstryck manuellt") { add("TESTMARKERING", "Manuell markering, ingen automatisk avkänning") }
   action("Dela logg") {
    val csv = (listOf("tid;typ;detalj") + events).joinToString("\n")
    val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, csv) }
@@ -49,13 +42,6 @@ class MainActivity : Activity() {
   events.addAll(getSharedPreferences("leveransjakt", MODE_PRIVATE).getString("events", "")!!.lines().filter { it.isNotBlank() })
   render()
  }
- override fun onStart() {
-  super.onStart()
-  val filter = IntentFilter(MusicListener.ACTION_TRACK)
-  if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-  else @Suppress("DEPRECATION") registerReceiver(receiver, filter)
- }
- override fun onStop() { unregisterReceiver(receiver); super.onStop() }
  private fun saveStop() {
   if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
       checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
