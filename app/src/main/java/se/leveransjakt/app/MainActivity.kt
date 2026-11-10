@@ -26,7 +26,7 @@ class MainActivity : Activity() {
   val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 30, 24, 20) }
   val heading = TextView(this).apply { text = "Leveransjakt"; textSize = 28f }
   root.addView(heading)
-  root.addView(TextView(this).apply { text = "Version 0.3: experiment med medieknappar. Android kan skicka dubbeltryck till Spotify i stället. Testet kan påverka Spotifys knappar och fungerar bara när appen är öppen." })
+  root.addView(TextView(this).apply { text = "Version 0.4: leveransläge körs som en tjänst. Testa med skärmen släckt. Android kan fortfarande välja Spotify." })
   fun action(label: String, fn: () -> Unit) {
    root.addView(Button(this).apply { text = label; setOnClickListener { fn() } })
   }
@@ -34,8 +34,8 @@ class MainActivity : Activity() {
    requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 1)
   }
   action("Registrera leveransstopp") { saveStop() }
-  action("Starta medieknappstest") { startMediaTest() }
-  action("Stoppa medieknappstest") { stopMediaTest() }
+  action("Starta leveransläge") { startForegroundService(Intent(this, DeliveryService::class.java)); add("START_BEGARD", "Leveransläge startat") }
+  action("Stoppa leveransläge") { stopService(Intent(this, DeliveryService::class.java)); add("STOPP_BEGARD", "Leveransläge stoppat") }
   action("Markera hörlurstryck manuellt") { add("TESTMARKERING", "Manuell markering") }
   action("Dela logg") {
    val csv = (listOf("tid;typ;detalj") + events).joinToString("\n")
@@ -48,7 +48,8 @@ class MainActivity : Activity() {
   events.addAll(getSharedPreferences("leveransjakt", MODE_PRIVATE).getString("events", "")!!.lines().filter { it.isNotBlank() })
   render()
  }
- override fun onStop() { stopMediaTest(); super.onStop() }
+ override fun onResume() { super.onResume(); if (::output.isInitialized) { events.clear(); events.addAll(getSharedPreferences("leveransjakt", MODE_PRIVATE).getString("events", "").orEmpty().lines().filter { it.isNotBlank() }); render() } }
+ override fun onStop() { super.onStop() }
  override fun onDestroy() { mediaTest?.release(); mediaTest = null; super.onDestroy() }
  private fun startMediaTest() {
   if (mediaTest != null) return
