@@ -1,78 +1,62 @@
 package se.leveransjakt.app
 
+import android.Manifest
 import android.app.*
 import android.content.*
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
 import android.os.*
-import android.view.KeyEvent
 import java.text.SimpleDateFormat
 import java.util.*
 
-class DeliveryService : Service() {
- private var session: MediaSessionCompat? = null
+class DeliveryService : Service(), LocationListener {
+ private lateinit var manager: LocationManager
  private val clock = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
- override fun onBind(intent: Intent?) = null
+ override fun onBind(intent: Intent?): IBinder? = null
+
  override fun onCreate() {
   super.onCreate()
-  val channel = NotificationChannel("delivery", "Leveransläge", NotificationManager.IMPORTANCE_LOW)
+  val channel = NotificationChannel("route", "GPS-rutt pågår", NotificationManager.IMPORTANCE_LOW)
   getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-  val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-  val notification = Notification.Builder(this, "delivery").setSmallIcon(android.R.drawable.ic_menu_mylocation)
-   .setContentTitle("Leveransjakt – leveransläge").setContentText("Testar hörlurarnas nästa-låt-knapp")
+  val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+  val notification = Notification.Builder(this, "route")
+   .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+   .setContentTitle("Leveransjakt – GPS-rutt pågår")
+   .setContentText("Tryck för att öppna och stoppa rutten")
    .setContentIntent(open).setOngoing(true).build()
-  startForeground(101, notification)
-  val s = MediaSessionCompat(this, "LeveransjaktLeveranslage")
-  s.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS)
-  s.setCallback(object : MediaSessionCompat.Callback() {
-   override fun onSkipToNext() { record("MEDIA_NEXT", "Hörlur/mediekommando"); gps() }
-   override fun onPlay() { record("MEDIA_PLAY", "Uppspelning") }
-   override fun onPause() { record("MEDIA_PAUSE", "Paus") }
-   override fun onMediaButtonEvent(intent: Intent): Boolean {
-    @Suppress("DEPRECATION")
-    val event = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-      else intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-    if (event?.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) {
-     onSkipToNext(); return true
-    }
-    return super.onMediaButtonEvent(intent)
-   }
-  })
-  s.setPlaybackState(PlaybackStateCompat.Builder().setActions(PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE)
-    .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1f).build())
-  session = s
-  s.isActive = true
-  record("LEVERANSLAGE_START", "Mediesession aktiv")
- }
- private fun record(kind: String, detail: String) {
+  if (Build.VERSION.SDK_INT >= 29) startForeground(101, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+  else startForeground(101, notification)
+  manager = getSystemService(LOCATION_SERVICE) as LocationManager
   val prefs = getSharedPreferences("leveransjakt", MODE_PRIVATE)
-  val entry = "${clock.format(Date())};$kind;${detail.replace(';', ',')}"
+  prefs.edit().putBoolean("tracking", true).apply()
+  log("RUTT_START", "")
+  try {
+   if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+       manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+    manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 15000L, 15f, this, Looper.getMainLooper())
+   } else if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+              manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+    manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 15000L, 15f, this, Looper.getMainLooper())
+   } else log("GPS_FEL", "Ingen aktiv platsleverantör eller behörighet")
+  } catch (e: SecurityException) { log("GPS_FEL", "Platsbehörighet saknas") }
+ }
+ override fun onLocationChanged(location: Location) {
+  val detail = "${location.latitude},${location.longitude},${location.accuracy},${location.provider}"
+  log("GPS", detail)
+ }
+ private fun log(kind: String, detail: String) {
+  val prefs = getSharedPreferences("leveransjakt", MODE_PRIVATE)
+  val entry = "${clock.format(Date())};$kind;$detail"
   val previous = prefs.getString("events", "").orEmpty()
   prefs.edit().putString("events", if (previous.isBlank()) entry else "$previous\n$entry").apply()
-  sendBroadcast(Intent("se.leveransjakt.app.LOG_UPDATED").setPackage(packageName))
- }
- private fun gps() {
-  if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-      checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-   record("GPS_FEL", "Platsbehörighet saknas"); return
-  }
-  val manager = getSystemService(LOCATION_SERVICE) as LocationManager
-  val provider = when {
-   manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-   manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-   else -> null
-  } ?: run { record("GPS_FEL", "Plats avstängd"); return }
-  manager.getCurrentLocation(provider, null, mainExecutor) { loc ->
-   if (loc != null) record("LEVERANSSTOPP", "${loc.latitude},${loc.longitude}; noggrannhet ${loc.accuracy}m")
-   else record("GPS_FEL", "Ingen position")
-  }
  }
  override fun onDestroy() {
-  session?.isActive = false
-  session?.release()
-  session = null
+  if (::manager.isInitialized) manager.removeUpdates(this)
+  log("RUTT_STOPP", "")
+  getSharedPreferences("leveransjakt", MODE_PRIVATE).edit().putBoolean("tracking", false).apply()
   super.onDestroy()
  }
 }
